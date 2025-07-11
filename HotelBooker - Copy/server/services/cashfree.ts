@@ -35,7 +35,7 @@ export class CashfreeService {
     this.config = {
       appId: process.env.CASHFREE_APP_ID || "9932874f93878c209926363eb3782399",
       secretKey: process.env.CASHFREE_SECRET_KEY || "cfsk_ma_prod_ecee2e35c6aee2ed204a5aa421aed9df_4aaad1e2",
-      baseUrl: "https://api.cashfree.com/pg", // Production URL
+      baseUrl: "https://api.cashfree.com/pg",
     };
   }
 
@@ -49,133 +49,81 @@ export class CashfreeService {
   }
 
   async createOrder(orderData: CreateOrderRequest): Promise<CreateOrderResponse> {
-    try {
-      console.log("Creating Cashfree order:", {
-        order_id: orderData.order_id,
-        amount: orderData.order_amount,
-        customer: orderData.customer_details.customer_name
-      });
+    const response = await fetch(`${this.config.baseUrl}/orders`, {
+      method: 'POST',
+      headers: this.getHeaders(),
+      body: JSON.stringify(orderData),
+    });
 
-      const response = await fetch(`${this.config.baseUrl}/orders`, {
-        method: 'POST',
-        headers: this.getHeaders(),
-        body: JSON.stringify(orderData),
-      });
+    const json = await response.json();
 
-      const responseData = await response.json() as any;
-
-      if (!response.ok) {
-        console.error("Cashfree API error:", responseData);
-        throw new Error(responseData.message || `HTTP ${response.status}: Failed to create order`);
-      }
-
-      console.log("Cashfree order created successfully:", {
-        order_id: responseData.order_id,
-        payment_session_id: responseData.payment_session_id
-      });
-
-      return responseData;
-    } catch (error) {
-      console.error("Cashfree createOrder error:", error);
-      throw error;
+    if (!response.ok) {
+      console.error("Cashfree error:", json);
+      throw new Error(json.message || 'Failed to create order');
     }
+
+    return json;
   }
 
   async getOrderDetails(orderId: string): Promise<any> {
-    try {
-      const response = await fetch(`${this.config.baseUrl}/orders/${orderId}`, {
-        method: 'GET',
-        headers: this.getHeaders(),
-      });
+    const response = await fetch(`${this.config.baseUrl}/orders/${orderId}`, {
+      method: 'GET',
+      headers: this.getHeaders(),
+    });
 
-      const responseData = await response.json() as any;
+    const json = await response.json();
 
-      if (!response.ok) {
-        console.error("Cashfree get order error:", responseData);
-        throw new Error(responseData.message || `HTTP ${response.status}: Failed to get order details`);
-      }
-
-      return responseData;
-    } catch (error) {
-      console.error("Cashfree getOrderDetails error:", error);
-      throw error;
+    if (!response.ok) {
+      throw new Error(json.message || 'Failed to get order details');
     }
+
+    return json;
   }
 
   async getPaymentDetails(orderId: string, paymentId: string): Promise<any> {
-    try {
-      const response = await fetch(`${this.config.baseUrl}/orders/${orderId}/payments/${paymentId}`, {
-        method: 'GET',
-        headers: this.getHeaders(),
-      });
+    const response = await fetch(`${this.config.baseUrl}/orders/${orderId}/payments/${paymentId}`, {
+      method: 'GET',
+      headers: this.getHeaders(),
+    });
 
-      const responseData = await response.json() as any;
+    const json = await response.json();
 
-      if (!response.ok) {
-        console.error("Cashfree get payment error:", responseData);
-        throw new Error(responseData.message || `HTTP ${response.status}: Failed to get payment details`);
-      }
-
-      return responseData;
-    } catch (error) {
-      console.error("Cashfree getPaymentDetails error:", error);
-      throw error;
+    if (!response.ok) {
+      throw new Error(json.message || 'Failed to get payment details');
     }
-  }
 
-  verifyWebhookSignature(payload: any, headers: Record<string, any>): boolean {
-    try {
-      // Implement webhook signature verification
-      // This is a simplified version - in production, implement proper signature verification
-      const receivedSignature = headers['x-webhook-signature'];
-      const timestamp = headers['x-webhook-timestamp'];
-      
-      if (!receivedSignature || !timestamp) {
-        console.warn("Missing webhook signature or timestamp");
-        return false;
-      }
-
-      // In production, verify the signature using your webhook secret
-      // const expectedSignature = crypto
-      //   .createHmac('sha256', WEBHOOK_SECRET)
-      //   .update(timestamp + JSON.stringify(payload))
-      //   .digest('hex');
-      
-      // return receivedSignature === expectedSignature;
-      
-      // For now, return true (implement proper verification in production)
-      return true;
-    } catch (error) {
-      console.error("Webhook signature verification error:", error);
-      return false;
-    }
+    return json;
   }
 
   async refundPayment(orderId: string, refundAmount: number, refundId: string): Promise<any> {
-    try {
-      const refundData = {
+    const response = await fetch(`${this.config.baseUrl}/orders/${orderId}/refunds`, {
+      method: 'POST',
+      headers: this.getHeaders(),
+      body: JSON.stringify({
         refund_amount: refundAmount,
         refund_id: refundId,
-        refund_note: "Refund requested by hotel management",
-      };
+        refund_note: 'Refund initiated by system',
+      }),
+    });
 
-      const response = await fetch(`${this.config.baseUrl}/orders/${orderId}/refunds`, {
-        method: 'POST',
-        headers: this.getHeaders(),
-        body: JSON.stringify(refundData),
-      });
+    const json = await response.json();
 
-      const responseData = await response.json() as any;
-
-      if (!response.ok) {
-        console.error("Cashfree refund error:", responseData);
-        throw new Error(responseData.message || `HTTP ${response.status}: Failed to process refund`);
-      }
-
-      return responseData;
-    } catch (error) {
-      console.error("Cashfree refundPayment error:", error);
-      throw error;
+    if (!response.ok) {
+      throw new Error(json.message || 'Failed to process refund');
     }
+
+    return json;
+  }
+
+  verifyWebhookSignature(payload: any, headers: Record<string, string>): boolean {
+    const signature = headers['x-webhook-signature'];
+    const timestamp = headers['x-webhook-timestamp'];
+
+    if (!signature || !timestamp) {
+      return false;
+    }
+
+    // In production, implement real HMAC verification using your webhook secret.
+    return true;
   }
 }
