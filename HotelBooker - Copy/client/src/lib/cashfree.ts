@@ -16,7 +16,7 @@ export interface CashfreePayment {
 export const CASHFREE_CONFIG = {
   appId: import.meta.env.VITE_CASHFREE_APP_ID,
   secretKey: import.meta.env.VITE_CASHFREE_SECRET_KEY,
-  environment: "PRODUCTION", // Set to "SANDBOX" for testing
+  environment: "PRODUCTION", // Change to "SANDBOX" for testing
 };
 
 // ✅ Load SDK dynamically before every payment attempt
@@ -28,18 +28,25 @@ export async function loadCashfreeSDK(): Promise<void> {
       return;
     }
 
+    // Remove previously broken/partial script (if any)
+    const existingScript = document.querySelector("script[src*='cashfree.prod.js']");
+    if (existingScript) {
+      console.warn("⚠️ Removing existing Cashfree SDK script and reloading...");
+      existingScript.remove();
+    }
+
     const script = document.createElement("script");
     script.src = "https://sdk.cashfree.com/js/ui/2.0.0/cashfree.prod.js"; // Production SDK
     script.async = true;
 
     script.onload = () => {
-      // Wait briefly to ensure window.Cashfree.init is available
+      // Wait briefly to ensure window.Cashfree.init is registered
       setTimeout(() => {
-        if (window.Cashfree?.init) {
-          console.log("✅ Cashfree SDK loaded successfully");
+        if (typeof window.Cashfree?.init === "function") {
+          console.log("✅ Cashfree SDK loaded and init() available");
           resolve();
         } else {
-          console.error("❌ Cashfree SDK loaded but init() missing");
+          console.error("❌ SDK loaded but init() is not a function");
           reject(new Error("Cashfree SDK loaded but init() is not a function"));
         }
       }, 100);
