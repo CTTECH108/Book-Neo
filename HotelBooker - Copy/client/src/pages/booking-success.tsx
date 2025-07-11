@@ -1,3 +1,4 @@
+// src/pages/booking-success.tsx
 import { useEffect } from "react";
 import { useRoute } from "wouter";
 import { Button } from "@/components/ui/button";
@@ -9,7 +10,6 @@ export default function BookingSuccess() {
 
   useEffect(() => {
     if (orderId) {
-      // Optionally: call backend to verify payment
       console.log("Booking Success for order:", orderId);
     }
   }, [orderId]);
@@ -25,7 +25,7 @@ export default function BookingSuccess() {
         <p className="text-gray-600 dark:text-gray-300 mb-6">
           Your booking was successful! Confirmation for order <strong>{orderId}</strong> has been sent to your email.
         </p>
-        <Button onClick={() => window.location.href = "/home"} className="w-full bg-gradient-to-r from-green-500 to-teal-500 text-white">
+        <Button onClick={() => (window.location.href = "/home")} className="w-full bg-gradient-to-r from-green-500 to-teal-500 text-white">
           <i className="fas fa-home mr-2"></i>Back to Home
         </Button>
       </div>
