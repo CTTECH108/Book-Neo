@@ -1,4 +1,3 @@
-// src/lib/cashfree.ts
 declare global {
   interface Window {
     Cashfree: any;
@@ -16,27 +15,40 @@ export interface CashfreePayment {
 
 export const CASHFREE_CONFIG = {
   appId: import.meta.env.VITE_CASHFREE_APP_ID || "9932874f93878c209926363eb3782399",
-  environment: "PRODUCTION", // SANDBOX or PRODUCTION
+  environment: "PRODUCTION", // or "SANDBOX"
 };
 
 export async function loadCashfreeSDK(): Promise<void> {
   return new Promise((resolve, reject) => {
-    if (window.Cashfree?.init) return resolve();
+    if (window.Cashfree) {
+      resolve();
+      return;
+    }
 
     const script = document.createElement("script");
     script.src = "https://sdk.cashfree.com/js/ui/2.0.0/cashfree.prod.js";
     script.async = true;
+
     script.onload = () => {
-      if (window.Cashfree?.init) resolve();
-      else reject(new Error("Cashfree SDK failed to initialize"));
+      if (window.Cashfree?.init) {
+        resolve();
+      } else {
+        reject(new Error("Cashfree SDK failed to initialize"));
+      }
     };
+
     script.onerror = () => reject(new Error("Failed to load Cashfree SDK"));
+
     document.head.appendChild(script);
   });
 }
 
 export async function initiateCashfreePayment(paymentData: CashfreePayment): Promise<{ success: boolean; orderId: string }> {
   await loadCashfreeSDK();
+
+  if (!window.Cashfree || typeof window.Cashfree.init !== 'function') {
+    throw new Error("Cashfree SDK not loaded properly");
+  }
 
   const response = await fetch("/api/cashfree/create-order", {
     method: "POST",
@@ -59,11 +71,12 @@ export async function initiateCashfreePayment(paymentData: CashfreePayment): Pro
   });
 
   if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.message || "Failed to create order");
+    const errorData = await response.json();
+    throw new Error(errorData.message || "Failed to create order");
   }
 
   const { payment_session_id } = await response.json();
+
   const cashfree = window.Cashfree.init({ mode: CASHFREE_CONFIG.environment });
 
   return new Promise((resolve, reject) => {
@@ -75,4 +88,8 @@ export async function initiateCashfreePayment(paymentData: CashfreePayment): Pro
       onCancel: () => reject(new Error("Payment cancelled")),
     });
   });
+}
+
+export function generateOrderId(): string {
+  return `ORDER_${Date.now()}_${Math.floor(Math.random() * 10000)}`;
 }
