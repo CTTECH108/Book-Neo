@@ -19,37 +19,54 @@ export const CASHFREE_CONFIG = {
   environment: "PRODUCTION", // Change to "SANDBOX" for testing
 };
 
-// ✅ Load SDK dynamically before every payment attempt
+let sdkLoading = false;
+let sdkLoaded = false;
+
 export async function loadCashfreeSDK(): Promise<void> {
+  if (sdkLoaded) return;
+
   return new Promise((resolve, reject) => {
     if (window.Cashfree?.init) {
-      console.log("✅ Cashfree SDK already loaded");
+      sdkLoaded = true;
+      console.log("✅ Cashfree SDK already loaded and ready");
       resolve();
       return;
     }
 
-    // Remove previously broken/partial script (if any)
+    if (sdkLoading) {
+      // Already loading, wait for it
+      const interval = setInterval(() => {
+        if (window.Cashfree?.init) {
+          clearInterval(interval);
+          sdkLoaded = true;
+          console.log("✅ Cashfree SDK became ready after wait");
+          resolve();
+        }
+      }, 100);
+      return;
+    }
+
+    sdkLoading = true;
     const existingScript = document.querySelector("script[src*='cashfree.prod.js']");
     if (existingScript) {
-      console.warn("⚠️ Removing existing Cashfree SDK script and reloading...");
+      console.warn("⚠️ Removing existing Cashfree SDK script...");
       existingScript.remove();
     }
 
     const script = document.createElement("script");
-    script.src = "https://sdk.cashfree.com/js/ui/2.0.0/cashfree.prod.js"; // Production SDK
+    script.src = "https://sdk.cashfree.com/js/ui/2.0.0/cashfree.prod.js";
     script.async = true;
 
     script.onload = () => {
-      // Wait briefly to ensure window.Cashfree.init is registered
       setTimeout(() => {
         if (typeof window.Cashfree?.init === "function") {
-          console.log("✅ Cashfree SDK loaded and init() available");
+          sdkLoaded = true;
+          console.log("✅ Cashfree SDK loaded and init() is available");
           resolve();
         } else {
-          console.error("❌ SDK loaded but init() is not a function");
-          reject(new Error("Cashfree SDK loaded but init() is not a function"));
+          reject(new Error("❌ Cashfree SDK loaded but init() is not a function"));
         }
-      }, 100);
+      }, 200); // wait just to be safe
     };
 
     script.onerror = () => {
