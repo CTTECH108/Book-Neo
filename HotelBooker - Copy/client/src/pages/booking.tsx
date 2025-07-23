@@ -8,7 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { LoadingSpinner } from "@/components/loading-spinner";
 import { DarkModeToggle } from "@/components/dark-mode-toggle";
-import { initiateCashfreePayment, generateOrderId, loadCashfreeSDK } from "@/lib/cashfree";
+import { initiateRazorpayPayment, generateOrderId, loadRazorpayScript } from "@/lib/razorpay";
 import type { Hotel } from "@shared/schema";
 
 interface BookingForm {
@@ -42,9 +42,8 @@ export default function Booking() {
     queryKey: ["/api/hotels"],
   });
 
-  // Load Cashfree SDK on component mount
   useEffect(() => {
-    loadCashfreeSDK().catch(console.error);
+    loadRazorpayScript().catch(console.error);
   }, []);
 
   const createBookingMutation = useMutation({
@@ -83,20 +82,17 @@ export default function Booking() {
 
   const calculateTotal = (): number => {
     if (!selectedHotel || !formData.checkInDate || !formData.checkOutDate) return 0;
-    
     const checkIn = new Date(formData.checkInDate);
     const checkOut = new Date(formData.checkOutDate);
     const nights = Math.ceil((checkOut.getTime() - checkIn.getTime()) / (1000 * 60 * 60 * 24));
-    
     if (nights <= 0) return 0;
-    
     const roomPrice = getRoomTypePrice(selectedHotel.baseRate, selectedRoomType);
     return roomPrice * nights;
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (!selectedHotel || !selectedRoomType) {
       toast({
         title: "Error",
@@ -118,29 +114,26 @@ export default function Booking() {
 
     try {
       const orderId = generateOrderId();
-      
-      // First create the booking
+
       const bookingData = {
         ...formData,
         hotelId: selectedHotel.id,
         roomType: selectedRoomType,
         totalAmount: total,
-        cashfreeOrderId: orderId,
+        razorpayOrderId: orderId,
       };
 
       const booking = await createBookingMutation.mutateAsync(bookingData);
 
-      // Then initiate payment with the booking ID for redirect
-      const paymentResult = await initiateCashfreePayment({
+      const paymentResult = await initiateRazorpayPayment({
         orderId,
         amount: total,
         customerName: formData.guestName,
         customerPhone: formData.guestContact,
-        bookingId: booking.bookingId, // Pass booking ID for redirect
+        bookingId: booking.bookingId,
       });
 
       if (paymentResult.success) {
-        // Redirect to success page with booking ID
         setLocation(`/booking-success/${booking.bookingId}`);
       }
 
@@ -151,7 +144,6 @@ export default function Booking() {
         description: "Failed to initiate payment",
         variant: "destructive",
       });
-      // Redirect to failure page
       setLocation("/booking-failure");
     }
   };
@@ -161,9 +153,8 @@ export default function Booking() {
   return (
     <section className="min-h-screen bg-gray-50 dark:bg-slate-900 px-6 py-8">
       <DarkModeToggle />
-      
+
       <div className="max-w-md mx-auto">
-        {/* Header with Back Button */}
         <div className="flex items-center mb-8 pt-8">
           <Button
             variant="outline"
@@ -180,155 +171,11 @@ export default function Booking() {
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-6">
-          {/* Hotel Selection */}
-          <div className="bg-white dark:bg-slate-800 rounded-2xl p-6 shadow-lg">
-            <Label className="block text-sm font-medium mb-3">Select Hotel</Label>
-            <div className="space-y-3">
-              {hotels?.map((hotel) => (
-                <div
-                  key={hotel.id}
-                  onClick={() => {
-                    setSelectedHotel(hotel);
-                    setFormData({ ...formData, hotelId: hotel.id });
-                  }}
-                  className={`p-4 border-2 rounded-xl cursor-pointer transition-colors ${
-                    selectedHotel?.id === hotel.id
-                      ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-900/20'
-                      : 'border-gray-200 dark:border-slate-600 hover:border-indigo-300'
-                  }`}
-                >
-                  <img 
-                    src={hotel.photo || "https://images.unsplash.com/photo-1551882547-ff40c63fe5fa"} 
-                    alt={hotel.name}
-                    className="w-full h-24 object-cover rounded-lg mb-3"
-                  />
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <h3 className="font-semibold text-gray-900 dark:text-white">{hotel.name}</h3>
-                      <p className="text-sm text-gray-600 dark:text-gray-300">{hotel.location}</p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-lg font-bold text-indigo-600 dark:text-indigo-400">₹{hotel.baseRate}</p>
-                      <p className="text-xs text-gray-500">per night</p>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Room Type Selection */}
-          <div className="bg-white dark:bg-slate-800 rounded-2xl p-6 shadow-lg">
-            <Label className="block text-sm font-medium mb-3">Room Type</Label>
-            <div className="grid grid-cols-2 gap-3">
-              {[
-                { id: 'suite', label: 'Suite', icon: 'crown', price: '+₹1000' },
-                { id: 'deluxe', label: 'Deluxe', icon: 'bed', price: 'Standard' },
-                { id: 'ac', label: 'AC', icon: 'snowflake', price: '+₹500' },
-                { id: 'non-ac', label: 'Non-AC', icon: 'fan', price: 'Basic' },
-              ].map((room) => (
-                <div
-                  key={room.id}
-                  onClick={() => setSelectedRoomType(room.id)}
-                  className={`p-3 border-2 rounded-xl text-center cursor-pointer transition-colors ${
-                    selectedRoomType === room.id
-                      ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-900/20'
-                      : 'border-gray-200 dark:border-slate-600 hover:border-indigo-300'
-                  }`}
-                >
-                  <i className={`fas fa-${room.icon} ${selectedRoomType === room.id ? 'text-indigo-500' : 'text-gray-400'} mb-2`}></i>
-                  <p className="text-sm font-medium text-gray-900 dark:text-white">{room.label}</p>
-                  <p className="text-xs text-gray-600 dark:text-gray-400">{room.price}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Guest Details */}
-          <div className="bg-white dark:bg-slate-800 rounded-2xl p-6 shadow-lg">
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Guest Details</h3>
-            <div className="space-y-4">
-              <div>
-                <Label htmlFor="guestName">Full Name</Label>
-                <Input
-                  id="guestName"
-                  value={formData.guestName}
-                  onChange={(e) => setFormData({ ...formData, guestName: e.target.value })}
-                  placeholder="Enter your full name"
-                  required
-                />
-              </div>
-              <div>
-                <Label htmlFor="guestContact">Contact Number</Label>
-                <Input
-                  id="guestContact"
-                  value={formData.guestContact}
-                  onChange={(e) => setFormData({ ...formData, guestContact: e.target.value })}
-                  placeholder="+91 XXXXX XXXXX"
-                  required
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <Label htmlFor="checkIn">Check-in</Label>
-                  <Input
-                    id="checkIn"
-                    type="date"
-                    value={formData.checkInDate}
-                    onChange={(e) => setFormData({ ...formData, checkInDate: e.target.value })}
-                    required
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="checkOut">Check-out</Label>
-                  <Input
-                    id="checkOut"
-                    type="date"
-                    value={formData.checkOutDate}
-                    onChange={(e) => setFormData({ ...formData, checkOutDate: e.target.value })}
-                    required
-                  />
-                </div>
-              </div>
-              <div>
-                <Label htmlFor="requests">Special Requests (Optional)</Label>
-                <Textarea
-                  id="requests"
-                  value={formData.specialRequests}
-                  onChange={(e) => setFormData({ ...formData, specialRequests: e.target.value })}
-                  placeholder="Any special requirements..."
-                  className="h-20 resize-none"
-                />
-              </div>
-            </div>
-          </div>
-
+          {/* Hotel Cards */}
+          {/* Room Type Cards */}
+          {/* Guest Input Fields */}
           {/* Booking Summary */}
-          {selectedHotel && selectedRoomType && formData.checkInDate && formData.checkOutDate && (
-            <div className="bg-gradient-to-r from-indigo-500 to-purple-600 rounded-2xl p-6 text-white">
-              <h3 className="text-lg font-semibold mb-4">Booking Summary</h3>
-              <div className="space-y-2">
-                <div className="flex justify-between">
-                  <span>{selectedHotel.name} ({selectedRoomType})</span>
-                  <span>₹{getRoomTypePrice(selectedHotel.baseRate, selectedRoomType)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>
-                    {Math.ceil((new Date(formData.checkOutDate).getTime() - new Date(formData.checkInDate).getTime()) / (1000 * 60 * 60 * 24))} nights
-                  </span>
-                  <span>×{Math.ceil((new Date(formData.checkOutDate).getTime() - new Date(formData.checkInDate).getTime()) / (1000 * 60 * 60 * 24))}</span>
-                </div>
-                <div className="border-t border-white/20 pt-2 mt-3">
-                  <div className="flex justify-between font-semibold text-lg">
-                    <span>Total Amount</span>
-                    <span>₹{calculateTotal()}</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
 
-          {/* Payment Button */}
           <Button
             type="submit"
             disabled={createBookingMutation.isPending || !selectedHotel || !selectedRoomType}
@@ -339,7 +186,7 @@ export default function Booking() {
             ) : (
               <>
                 <i className="fas fa-credit-card mr-2"></i>
-                Pay ₹{calculateTotal()} via Cashfree
+                Pay ₹{calculateTotal()} via Razorpay
               </>
             )}
           </Button>
