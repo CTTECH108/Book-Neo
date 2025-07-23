@@ -1,50 +1,45 @@
 import fetch from 'node-fetch';
+import base64 from 'base-64';
 
-interface CashfreeConfig {
-  appId: string;
-  secretKey: string;
+interface RazorpayConfig {
+  keyId: string;
+  keySecret: string;
   baseUrl: string;
 }
 
 interface CreateOrderRequest {
-  order_id: string;
-  order_amount: number;
-  order_currency: string;
-  customer_details: {
-    customer_id: string;
-    customer_name: string;
-    customer_email: string;
-    customer_phone: string;
-  };
-  order_meta: {
-    return_url: string;
-    notify_url: string;
-  };
+  amount: number; // in paise
+  currency: string;
+  receipt: string;
+  payment_capture?: number; // 1 for auto capture
+  notes?: Record<string, string>;
 }
 
 interface CreateOrderResponse {
-  payment_session_id: string;
-  order_id: string;
-  order_status: string;
+  id: string;
+  entity: string;
+  amount: number;
+  currency: string;
+  status: string;
+  receipt: string;
 }
 
-export class CashfreeService {
-  private config: CashfreeConfig;
+export class RazorpayService {
+  private config: RazorpayConfig;
 
   constructor() {
     this.config = {
-      appId: process.env.CASHFREE_APP_ID || "9932874f93878c209926363eb3782399",
-      secretKey: process.env.CASHFREE_SECRET_KEY || "cfsk_ma_prod_ecee2e35c6aee2ed204a5aa421aed9df_4aaad1e2",
-      baseUrl: "https://api.cashfree.com/pg",
+      keyId: process.env.RAZORPAY_KEY_ID || "rzp_test_uGpEIbyl9tXtTH",
+      keySecret: process.env.RAZORPAY_KEY_SECRET || "Ui7CXnrutIKk0Ufrp9dM1NzH",
+      baseUrl: "https://api.razorpay.com/v1",
     };
   }
 
   private getHeaders(): Record<string, string> {
+    const credentials = base64.encode(`${this.config.keyId}:${this.config.keySecret}`);
     return {
       'Content-Type': 'application/json',
-      'x-api-version': '2023-08-01',
-      'x-client-id': this.config.appId,
-      'x-client-secret': this.config.secretKey,
+      'Authorization': `Basic ${credentials}`,
     };
   }
 
@@ -58,8 +53,8 @@ export class CashfreeService {
     const json = await response.json();
 
     if (!response.ok) {
-      console.error("Cashfree error:", json);
-      throw new Error(json.message || 'Failed to create order');
+      console.error("Razorpay error:", json);
+      throw new Error(json.error?.description || 'Failed to create order');
     }
 
     return json;
@@ -74,14 +69,14 @@ export class CashfreeService {
     const json = await response.json();
 
     if (!response.ok) {
-      throw new Error(json.message || 'Failed to get order details');
+      throw new Error(json.error?.description || 'Failed to get order details');
     }
 
     return json;
   }
 
-  async getPaymentDetails(orderId: string, paymentId: string): Promise<any> {
-    const response = await fetch(`${this.config.baseUrl}/orders/${orderId}/payments/${paymentId}`, {
+  async getPaymentDetails(paymentId: string): Promise<any> {
+    const response = await fetch(`${this.config.baseUrl}/payments/${paymentId}`, {
       method: 'GET',
       headers: this.getHeaders(),
     });
@@ -89,41 +84,35 @@ export class CashfreeService {
     const json = await response.json();
 
     if (!response.ok) {
-      throw new Error(json.message || 'Failed to get payment details');
+      throw new Error(json.error?.description || 'Failed to get payment details');
     }
 
     return json;
   }
 
-  async refundPayment(orderId: string, refundAmount: number, refundId: string): Promise<any> {
-    const response = await fetch(`${this.config.baseUrl}/orders/${orderId}/refunds`, {
+  async refundPayment(paymentId: string, amount: number): Promise<any> {
+    const response = await fetch(`${this.config.baseUrl}/payments/${paymentId}/refund`, {
       method: 'POST',
       headers: this.getHeaders(),
-      body: JSON.stringify({
-        refund_amount: refundAmount,
-        refund_id: refundId,
-        refund_note: 'Refund initiated by system',
-      }),
+      body: JSON.stringify({ amount }),
     });
 
     const json = await response.json();
 
     if (!response.ok) {
-      throw new Error(json.message || 'Failed to process refund');
+      throw new Error(json.error?.description || 'Failed to process refund');
     }
 
     return json;
   }
 
-  verifyWebhookSignature(payload: any, headers: Record<string, string>): boolean {
-    const signature = headers['x-webhook-signature'];
-    const timestamp = headers['x-webhook-timestamp'];
+  verifyWebhookSignature(payload: string, signature: string, secret: string): boolean {
+    const crypto = require("crypto");
+    const expectedSignature = crypto
+      .createHmac("sha256", secret)
+      .update(payload)
+      .digest("hex");
 
-    if (!signature || !timestamp) {
-      return false;
-    }
-
-    // In production, implement real HMAC verification using your webhook secret.
-    return true;
+    return expectedSignature === signature;
   }
 }
