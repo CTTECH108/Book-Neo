@@ -1,10 +1,10 @@
 declare global {
   interface Window {
-    Cashfree: any;
+    Razorpay: any;
   }
 }
 
-export interface CashfreePayment {
+export interface RazorpayPayment {
   orderId: string;
   amount: number;
   customerName: string;
@@ -13,33 +13,30 @@ export interface CashfreePayment {
   bookingId?: string;
 }
 
-export const CASHFREE_CONFIG = {
-  appId: import.meta.env.VITE_CASHFREE_APP_ID,
-  secretKey: import.meta.env.VITE_CASHFREE_SECRET_KEY,
-  environment: "PRODUCTION", // Change to "SANDBOX" for testing
+export const RAZORPAY_CONFIG = {
+  keyId: import.meta.env.VITE_RAZORPAY_KEY_ID || "rzp_test_uGpEIbyl9tXtTH",
+  currency: "INR",
 };
 
 let sdkLoading = false;
 let sdkLoaded = false;
 
-export async function loadCashfreeSDK(): Promise<void> {
+export async function loadRazorpayScript(): Promise<void> {
   if (sdkLoaded) return;
 
   return new Promise((resolve, reject) => {
-    if (window.Cashfree?.init) {
+    if (window.Razorpay) {
       sdkLoaded = true;
-      console.log("✅ Cashfree SDK already loaded and ready");
+      console.log("✅ Razorpay SDK already loaded");
       resolve();
       return;
     }
 
     if (sdkLoading) {
-      // Already loading, wait for it
       const interval = setInterval(() => {
-        if (window.Cashfree?.init) {
+        if (window.Razorpay) {
           clearInterval(interval);
           sdkLoaded = true;
-          console.log("✅ Cashfree SDK became ready after wait");
           resolve();
         }
       }, 100);
@@ -47,133 +44,106 @@ export async function loadCashfreeSDK(): Promise<void> {
     }
 
     sdkLoading = true;
-    const existingScript = document.querySelector("script[src*='cashfree.prod.js']");
+    const existingScript = document.querySelector("script[src*='checkout.razorpay.com']");
     if (existingScript) {
-      console.warn("⚠️ Removing existing Cashfree SDK script...");
       existingScript.remove();
     }
 
     const script = document.createElement("script");
-    script.src = "https://sdk.cashfree.com/js/ui/2.0.0/cashfree.prod.js";
+    script.src = "https://checkout.razorpay.com/v1/checkout.js";
     script.async = true;
 
     script.onload = () => {
-      setTimeout(() => {
-        if (typeof window.Cashfree?.init === "function") {
-          sdkLoaded = true;
-          console.log("✅ Cashfree SDK loaded and init() is available");
-          resolve();
-        } else {
-          reject(new Error("❌ Cashfree SDK loaded but init() is not a function"));
-        }
-      }, 200); // wait just to be safe
+      sdkLoaded = true;
+      console.log("✅ Razorpay SDK loaded");
+      resolve();
     };
 
     script.onerror = () => {
-      reject(new Error("❌ Failed to load Cashfree SDK"));
+      reject(new Error("❌ Failed to load Razorpay SDK"));
     };
 
     document.head.appendChild(script);
   });
 }
 
-export async function initiateCashfreePayment(
-  paymentData: CashfreePayment
+export async function initiateRazorpayPayment(
+  paymentData: RazorpayPayment
 ): Promise<{ success: boolean; orderId: string }> {
-  try {
-    await loadCashfreeSDK();
+  await loadRazorpayScript();
 
-    if (!window.Cashfree?.init) {
-      throw new Error("Cashfree SDK not initialized properly");
-    }
+  const orderPayload = {
+    orderId: paymentData.orderId,
+    amount: paymentData.amount,
+    currency: RAZORPAY_CONFIG.currency,
+    receipt: paymentData.orderId,
+  };
 
-    const orderData = {
-      order_id: paymentData.orderId,
-      order_amount: paymentData.amount,
-      order_currency: "INR",
-      customer_details: {
-        customer_id: paymentData.customerPhone,
-        customer_name: paymentData.customerName,
-        customer_email:
+  const orderRes = await fetch("/api/razorpay/create-order", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(orderPayload),
+  });
+
+  if (!orderRes.ok) {
+    const error = await orderRes.json();
+    throw new Error(error.message || "Failed to create Razorpay order");
+  }
+
+  const { id: razorpayOrderId } = await orderRes.json();
+
+  return new Promise((resolve, reject) => {
+    const razorpay = new window.Razorpay({
+      key: RAZORPAY_CONFIG.keyId,
+      amount: paymentData.amount * 100,
+      currency: RAZORPAY_CONFIG.currency,
+      name: "BookNeo",
+      description: "Booking Payment",
+      image: "/logo.png",
+      order_id: razorpayOrderId,
+      handler: async function (response: any) {
+        console.log("✅ Payment success:", response);
+        resolve({ success: true, orderId: razorpayOrderId });
+      },
+      prefill: {
+        name: paymentData.customerName,
+        email:
           paymentData.customerEmail ||
           `${paymentData.customerPhone.replace(/\D/g, "")}@bookneoapp.com`,
-        customer_phone: paymentData.customerPhone,
+        contact: paymentData.customerPhone,
       },
-      order_meta: {
-        return_url: `${window.location.origin}/booking-success/${
-          paymentData.bookingId || paymentData.orderId
-        }`,
-        notify_url: `${window.location.origin}/api/webhooks/cashfree`,
+      notes: {
+        bookingId: paymentData.bookingId || "",
       },
-    };
-
-    console.log("📦 Creating Cashfree order:", orderData);
-
-    const response = await fetch("/api/cashfree/create-order", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
+      theme: {
+        color: "#0f172a",
       },
-      body: JSON.stringify(orderData),
     });
 
-    if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(errorData.message || "Failed to create payment order");
-    }
-
-    const { payment_session_id } = await response.json();
-
-    if (!payment_session_id) {
-      throw new Error("Invalid payment session ID received from server");
-    }
-
-    const cashfree = window.Cashfree.init({
-      mode: CASHFREE_CONFIG.environment,
+    razorpay.on("payment.failed", function (response: any) {
+      console.error("❌ Razorpay Payment Failed:", response);
+      reject(new Error(response.error.description || "Payment Failed"));
     });
 
-    console.log("💳 Launching Cashfree checkout with session:", payment_session_id);
-
-    return new Promise((resolve, reject) => {
-      cashfree.checkout({
-        paymentSessionId: payment_session_id,
-        redirectTarget: "_modal",
-        onSuccess: (data: any) => {
-          console.log("✅ Payment successful:", data);
-          resolve({ success: true, orderId: paymentData.orderId });
-        },
-        onFailure: (error: any) => {
-          console.error("❌ Payment failed:", error);
-          reject(new Error(error.message || "Payment failed"));
-        },
-        onCancel: () => {
-          console.warn("⚠️ Payment cancelled by user");
-          reject(new Error("Payment cancelled by user"));
-        },
-      });
-    });
-  } catch (error) {
-    console.error("❌ Cashfree payment error:", error);
-    throw error;
-  }
+    razorpay.open();
+  });
 }
 
 export async function verifyPayment(orderId: string): Promise<any> {
   try {
-    const response = await fetch(`/api/cashfree/order/${orderId}`, {
+    const res = await fetch(`/api/razorpay/order/${orderId}`, {
       method: "GET",
-      headers: {
-        "Content-Type": "application/json",
-      },
     });
 
-    if (!response.ok) {
-      throw new Error("Failed to verify payment");
+    if (!res.ok) {
+      throw new Error("Failed to verify Razorpay order");
     }
 
-    return await response.json();
+    return await res.json();
   } catch (error) {
-    console.error("❌ Payment verification error:", error);
+    console.error("❌ Razorpay verification error:", error);
     throw error;
   }
 }
